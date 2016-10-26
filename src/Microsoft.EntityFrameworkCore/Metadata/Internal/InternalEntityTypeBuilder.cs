@@ -139,13 +139,30 @@ namespace Microsoft.EntityFrameworkCore.Metadata.Internal
             var key = Metadata.FindDeclaredKey(actualProperties);
             if (key == null)
             {
-                if ((configurationSource != ConfigurationSource.Explicit) // let it throw for explicit
-                    && (configurationSource == null
-                        || actualProperties.Any(p => p.GetContainingForeignKeys().Any(k => k.DeclaringEntityType != Metadata))
-                        || actualProperties.Any(p => !p.Builder.CanSetRequired(true, configurationSource))))
+                if (configurationSource == null)
                 {
                     return null;
                 }
+
+                var containingForeignKeys = actualProperties
+                    .SelectMany(p => p.GetContainingForeignKeys().Where(k => k.DeclaringEntityType != Metadata))
+                    .ToList();
+
+                if (containingForeignKeys.Any(fk => !configurationSource.Overrides(fk.GetForeignKeyPropertiesConfigurationSource())))
+                {
+                    return null;
+                }
+
+                if (configurationSource != ConfigurationSource.Explicit // let it throw for explicit
+                    && actualProperties.Any(p => !p.Builder.CanSetRequired(true, configurationSource)))
+                {
+                    return null;
+                }
+
+                var modifiedRelationships = containingForeignKeys
+                    .Where(fk => fk.GetForeignKeyPropertiesConfigurationSource() != ConfigurationSource.Explicit)  // let it throw for explicit
+                    .Select(foreignKey => foreignKey.Builder.HasForeignKey(null, configurationSource, runConventions: false))
+                    .ToList();
 
                 foreach (var actualProperty in actualProperties)
                 {
@@ -153,6 +170,16 @@ namespace Microsoft.EntityFrameworkCore.Metadata.Internal
                 }
 
                 key = Metadata.AddKey(actualProperties, configurationSource.Value);
+
+                foreach (var foreignKey in containingForeignKeys)
+                {
+                    ModelBuilder.Metadata.ConventionDispatcher.OnForeignKeyRemoved(foreignKey.DeclaringEntityType.Builder, foreignKey);
+                }
+
+                foreach (var relationship in modifiedRelationships)
+                {
+                    ModelBuilder.Metadata.ConventionDispatcher.OnForeignKeyAdded(relationship);
+                }
             }
             else if (configurationSource.HasValue)
             {
@@ -939,15 +966,17 @@ namespace Microsoft.EntityFrameworkCore.Metadata.Internal
             var detachedRelationships = property.GetContainingForeignKeys().ToList()
                 .Select(DetachRelationship).ToList();
 
-            foreach (var key in Metadata.GetKeys().Where(i => i.Properties.Contains(property)).ToList())
+            var removedKeys = new List<Key>();
+            foreach (var key in property.GetContainingKeys().ToList())
             {
                 detachedRelationships.AddRange(key.GetReferencingForeignKeys().ToList()
                     .Select(DetachRelationship));
-                var removed = RemoveKey(key, configurationSource);
+                var removed = RemoveKey(key, configurationSource, runConventions: false);
                 Debug.Assert(removed.HasValue);
+                removedKeys.Add(key);
             }
 
-            foreach (var index in Metadata.GetIndexes().Where(i => i.Properties.Contains(property)).ToList())
+            foreach (var index in property.GetContainingIndexes().ToList())
             {
                 var removed = RemoveIndex(index, configurationSource);
                 Debug.Assert(removed.HasValue);
@@ -957,6 +986,11 @@ namespace Microsoft.EntityFrameworkCore.Metadata.Internal
             {
                 var removedProperty = Metadata.RemoveProperty(property.Name);
                 Debug.Assert(removedProperty == property);
+            }
+
+            foreach (var key in removedKeys)
+            {
+                Metadata.Model.ConventionDispatcher.OnKeyRemoved(this, key);
             }
 
             foreach (var detachedRelationship in detachedRelationships)
