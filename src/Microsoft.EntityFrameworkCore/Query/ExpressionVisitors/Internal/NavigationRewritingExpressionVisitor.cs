@@ -39,6 +39,7 @@ namespace Microsoft.EntityFrameworkCore.Query.ExpressionVisitors.Internal
         private bool _insideInnerSequence;
         private bool _innerKeySelectorRequiresNullRefProtection;
         private bool _insideInnerKeySelector;
+        private bool _insideOrderBy;
 
         private class NavigationJoin
         {
@@ -580,7 +581,8 @@ namespace Microsoft.EntityFrameworkCore.Query.ExpressionVisitors.Internal
                 }
 
                 if (navigations.Count == 1
-                    && navigations[0].IsDependentToPrincipal())
+                    && navigations[0].IsDependentToPrincipal() 
+                    && !(_insideOrderBy && _queryModel.SelectClause.Selector == declaringExpression))
                 {
                     var foreignKeyMemberAccess = CreateForeignKeyMemberAccess(propertyName, declaringExpression, navigations[0]);
                     if (foreignKeyMemberAccess != null)
@@ -1217,7 +1219,12 @@ namespace Microsoft.EntityFrameworkCore.Query.ExpressionVisitors.Internal
             {
                 var originalTypes = orderByClause.Orderings.Select(o => o.Expression.Type).ToList();
 
+                var oldInsideOrderBy = TransformingVisitor._insideOrderBy;
+                TransformingVisitor._insideOrderBy = true;
+
                 base.VisitOrderByClause(orderByClause, queryModel, index);
+
+                TransformingVisitor._insideOrderBy = oldInsideOrderBy;
 
                 for (var i = 0; i < orderByClause.Orderings.Count; i++)
                 {

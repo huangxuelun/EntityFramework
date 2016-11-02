@@ -3500,7 +3500,7 @@ namespace Microsoft.EntityFrameworkCore.Specification.Tests
             }
         }
 
-        //[ConditionalFact] // TODO: See issue#6896
+        [ConditionalFact]
         public virtual void Required_navigation_take_required_navigation()
         {
             List<string> expected;
@@ -3522,6 +3522,72 @@ namespace Microsoft.EntityFrameworkCore.Specification.Tests
                 var query = context.LevelThree
                     .Select(l3 => l3.OneToOne_Required_FK_Inverse)
                     .OrderBy(l3 => l3.Id)
+                    .Take(10)
+                    .Select(l2 => l2.OneToOne_Required_FK_Inverse.Name);
+
+                var result = query.ToList();
+
+                Assert.Equal(expected.Count, result.Count);
+                foreach (var resultItem in result)
+                {
+                    Assert.True(expected.Contains(resultItem));
+                }
+            }
+        }
+
+        [ConditionalFact]
+        public virtual void Required_navigation_order_by_and_select_no_subquery()
+        {
+            List<string> expected;
+            using (var context = CreateContext())
+            {
+                expected = context.LevelThree.Include(l3 => l3.OneToOne_Required_FK_Inverse)
+                    .ToList()
+                    .OrderBy(l3 => l3.OneToOne_Required_FK_Inverse.Id)
+                    .Select(l3 => l3.OneToOne_Required_FK_Inverse.Name)
+                    .ToList().OrderBy(l => l).ToList();
+            }
+
+            ClearLog();
+
+            using (var context = CreateContext())
+            {
+                var query = context.LevelThree
+                    .OrderBy(l3 => l3.OneToOne_Required_FK_Inverse.Id)
+                    .Select(l3 => l3.OneToOne_Required_FK_Inverse);
+
+                var result = query.ToList().Select(l => l.Name).OrderBy(l => l).ToList();
+
+                Assert.Equal(expected.Count, result.Count);
+                foreach (var resultItem in result)
+                {
+                    Assert.True(expected.Contains(resultItem));
+                }
+            }
+        }
+
+        [ConditionalFact]
+        public virtual void Required_navigation_take_required_navigation_anonymous_type_projected_in_subquery()
+        {
+            List<string> expected;
+            using (var context = CreateContext())
+            {
+                expected = context.LevelThree.Include(l3 => l3.OneToOne_Required_FK_Inverse).ThenInclude(l2 => l2.OneToOne_Required_FK_Inverse)
+                    .ToList()
+                    .Select(l3 => new { l3.OneToOne_Required_FK_Inverse, name = l3.Name })
+                    .OrderBy(l2 => l2.OneToOne_Required_FK_Inverse.Id)
+                    .Take(10)
+                    .Select(l2 => l2.OneToOne_Required_FK_Inverse.Name)
+                    .ToList();
+            }
+
+            ClearLog();
+
+            using (var context = CreateContext())
+            {
+                var query = context.LevelThree
+                    .Select(l3 => new { l3.OneToOne_Required_FK_Inverse, name = l3.Name })
+                    .OrderBy(l3 => l3.OneToOne_Required_FK_Inverse.Id)
                     .Take(10)
                     .Select(l2 => l2.OneToOne_Required_FK_Inverse.Name);
 
